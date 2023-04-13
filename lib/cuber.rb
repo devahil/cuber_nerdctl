@@ -12,7 +12,8 @@ require 'cuber/commands/deploy'
 require 'cuber/commands/ctl'
 
 
-puts("Cuber Nerdctl version, by cesar.monroy@kafkadigital.com")
+puts("Cuber nerdctl version by devahil@gmail.com, based on cuber deployer")
 puts("")
 module Cuber
+
 end

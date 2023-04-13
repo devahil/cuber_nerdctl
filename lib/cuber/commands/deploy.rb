@@ -16,7 +16,7 @@ module Cuber::Commands
           pack
         else
           build
-          push
+          #push
         end
       end
       configure
