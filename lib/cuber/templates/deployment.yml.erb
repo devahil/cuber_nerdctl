@@ -1,0 +1,374 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+  annotations:
+    image: <%= @options[:image].to_s.to_json %>
+    buildpacks: <%= @options[:buildpacks].to_s.to_json %>
+    ingress: <%= @options[:ingress].to_s.to_json %>
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: regcred
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+data:
+  .dockerconfigjson: <%= @options[:dockerconfigjson] %>
+type: kubernetes.io/dockerconfigjson
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+data:
+  <%- @options[:secrets].each do |key, value| -%>
+  <%= key %>: <%= Base64.strict_encode64 value %>
+  <%- end -%>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: env
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+data:
+  <%- @options[:env].each do |key, value| -%>
+  <%= key %>: <%= value.to_s.to_json %>
+  <%- end -%>
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+spec:
+  maxUnavailable: "50%"
+  selector:
+    matchLabels:
+      app: web-proc
+
+<%- if @options[:migrate] -%>
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-<%= @options[:instance] %>
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+        app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+        app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+        app.kubernetes.io/managed-by: cuber
+    spec:
+      containers:
+      - name: migration
+        image: <%= @options[:image] %>:<%= @options[:release] %>
+        imagePullPolicy: Always
+        <%- if @options[:buildpacks] -%>
+        command: ["launcher"]
+        args: <%= @options[:migrate][:cmd].shellsplit %>
+        <%- else -%>
+        command: <%= @options[:migrate][:cmd].shellsplit %>
+        <%- end -%>
+        envFrom:
+        - configMapRef:
+            name: env
+        - secretRef:
+            name: app-secrets
+      imagePullSecrets:
+      - name: regcred
+      restartPolicy: Never
+<%- end -%>
+
+<%- @options[:procs].each do |procname, proc| -%>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <%= procname %>
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+spec:
+  revisionHistoryLimit: 0
+  replicas: <%= proc[:scale] %>
+  selector:
+    matchLabels:
+      app: <%= procname %>-proc
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "25%"
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+        app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+        app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+        app.kubernetes.io/managed-by: cuber
+        app: <%= procname %>-proc
+    spec:
+      containers:
+      - name: <%= procname %>-proc
+        image: <%= @options[:image] %>:<%= @options[:release] %>
+        imagePullPolicy: Always
+        <%- if @options[:buildpacks] -%>
+        command: ["launcher"]
+        args: <%= proc[:cmd].shellsplit %>
+        <%- else -%>
+        command: <%= proc[:cmd].shellsplit %>
+        <%- end -%>
+        resources:
+          requests:
+            <%- if proc[:cpu] -%>
+            cpu: <%= proc[:cpu] %>
+            <%- end -%>
+            <%- if proc[:ram] -%>
+            memory: <%= proc[:ram] %>Gi
+            <%- end -%>
+          limits:
+            <%- if proc[:ram] -%>
+            memory: <%= proc[:ram] %>Gi
+            <%- end -%>
+        envFrom:
+        - configMapRef:
+            name: env
+        - secretRef:
+            name: app-secrets
+        env:
+        <%- proc[:env].each do |key, value| -%>
+        - name: <%= key %>
+          value: <%= value.to_s.to_json %>
+        <%- end -%>
+        <%- if procname.to_s == 'web' -%>
+        - name: PORT
+          value: "8080"
+        ports:
+        - containerPort: 8080
+        <%- end -%>
+        <%- if procname.to_s == 'web' && @options[:health] -%>
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: <%= URI.parse(@options[:health]).path.to_json %>
+            httpHeaders:
+              - name: Host
+                value: <%= URI.parse(@options[:health]).host.to_json %>
+              - name: X-Forwarded-Proto
+                value: <%= URI.parse(@options[:health]).scheme.to_json %>
+        <%- end -%>
+      <%- if @options[:migrate] && @options[:migrate][:check] -%>
+      initContainers:
+      - name: migration-check
+        image: <%= @options[:image] %>:<%= @options[:release] %>
+        imagePullPolicy: Always
+        <%- if @options[:buildpacks] -%>
+        command: ["launcher"]
+        args: <%= @options[:migrate][:check].shellsplit %>
+        <%- else -%>
+        command: <%= @options[:migrate][:check].shellsplit %>
+        <%- end -%>
+        envFrom:
+        - configMapRef:
+            name: env
+        - secretRef:
+            name: app-secrets
+      <%- end -%>
+      imagePullSecrets:
+      - name: regcred
+      terminationGracePeriodSeconds: <%= proc[:term] %>
+<%- end -%>
+
+<%- @options[:cron].each do |jobname, cron| -%>
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-<%= jobname %>
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+spec:
+  schedule: <%= cron[:schedule].to_s.to_json %>
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+        app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+        app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+        app.kubernetes.io/managed-by: cuber
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+            app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+            app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+            app.kubernetes.io/managed-by: cuber
+        spec:
+          containers:
+          - name: task
+            image: <%= @options[:image] %>:<%= @options[:release] %>
+            imagePullPolicy: Always
+            <%- if @options[:buildpacks] -%>
+            command: ["launcher"]
+            args: <%= cron[:cmd].shellsplit %>
+            <%- else -%>
+            command: <%= cron[:cmd].shellsplit %>
+            <%- end -%>
+            envFrom:
+            - configMapRef:
+                name: env
+            - secretRef:
+                name: app-secrets
+          imagePullSecrets:
+          - name: regcred
+          restartPolicy: Never
+<%- end -%>
+
+<%- if @options[:ssl] -%>
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ssl
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+data:
+  tls.crt: <%= Base64.strict_encode64 File.read @options[:ssl][:crt] %>
+  tls.key: <%= Base64.strict_encode64 File.read @options[:ssl][:key] %>
+type: kubernetes.io/tls
+<%- end -%>
+
+<%- if @options[:ingress] -%>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+spec:
+  selector:
+    app: web-proc
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-ingress
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+  annotations:
+    <%- @options[:lb].each do |key, value| -%>
+    <%= key %>: <%= value.to_s.to_json %>
+    <%- end -%>
+spec:
+  <%- if @options[:ssl] -%>
+  tls:
+  - secretName: ssl
+  <%- end -%>
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+<%- else -%>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-balancer
+  namespace: <%= @options[:app] %>
+  labels:
+    app.kubernetes.io/name: <%= @options[:app].to_s.to_json %>
+    app.kubernetes.io/instance: <%= @options[:instance].to_s.to_json %>
+    app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
+    app.kubernetes.io/managed-by: cuber
+  annotations:
+    <%- @options[:lb].each do |key, value| -%>
+    <%= key %>: <%= value.to_s.to_json %>
+    <%- end -%>
+spec:
+  type: LoadBalancer
+  selector:
+    app: web-proc
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+  - name: https
+    protocol: TCP
+    port: 443
+    targetPort: 8080
+<%- end -%>
