@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/version: <%= @options[:release].to_s.to_json %>
     app.kubernetes.io/managed-by: cuber
   annotations:
+    imagePullPolicy: IfNotPresent
     image: <%= @options[:image].to_s.to_json %>
     buildpacks: <%= @options[:buildpacks].to_s.to_json %>
     ingress: <%= @options[:ingress].to_s.to_json %>
