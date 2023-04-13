@@ -1,3 +1,3 @@
 module Cuber
-  VERSION = '0.0.1'.freeze
+  VERSION = '0.0.1 Alpha Nerdctl'.freeze
 end

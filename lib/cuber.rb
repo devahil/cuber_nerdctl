@@ -11,6 +11,8 @@ require 'cuber/commands/run'
 require 'cuber/commands/deploy'
 require 'cuber/commands/ctl'
 
-module Cuber
 
+puts("Cuber Nerdctl version, by cesar.monroy@kafkadigital.com")
+puts("")
+module Cuber
 end
