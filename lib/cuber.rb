@@ -11,9 +11,6 @@ require 'cuber/commands/run'
 require 'cuber/commands/deploy'
 require 'cuber/commands/ctl'
 
-
-puts("Cuber nerdctl version by devahil@gmail.com, based on cuber deployer")
-puts("")
 module Cuber
 
 end

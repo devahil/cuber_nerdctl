@@ -12,8 +12,12 @@ module Cuber::Commands
       else
         checkout
         set_release_name
-        build
-        push
+        if @options[:buildpacks]
+          pack
+        else
+          build
+          push
+        end
       end
       configure
       apply
@@ -69,7 +73,7 @@ module Cuber::Commands
     def push
       print_step 'Pushing image to Docker registry'
       tag = "#{@options[:image]}:#{@options[:release]}"
-      #system('nerdctl', 'push', tag) || abort('Cuber: docker push failed')
+      system('nerdctl', 'push', tag) || abort('Cuber: docker push failed')
     end
 
     def configure
