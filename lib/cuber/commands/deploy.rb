@@ -81,12 +81,16 @@ module Cuber::Commands
       @options[:instance] = "#{@options[:app]}-#{Time.now.utc.iso8601.delete('^0-9')}"
       @options[:dockerconfigjson] = Base64.strict_encode64 File.read File.expand_path(@options[:dockerconfig] || '~/.docker/config.json')
       render 'deployment.yml', '.cuber/kubernetes/deployment.yml'
+      render 'pod.yml', 'cuber/kubernetes/pod.yml'
     end
 
     def apply
       print_step 'Applying configuration to Kubernetes cluster'
       kubectl 'apply',
         '-f', '.cuber/kubernetes/deployment.yml',
+        '--prune', '-l', "app.kubernetes.io/name=#{@options[:app]},app.kubernetes.io/managed-by=cuber"
+        kubectl 'apply',
+        '-f', '.cuber/kubernetes/pod.yml',
         '--prune', '-l', "app.kubernetes.io/name=#{@options[:app]},app.kubernetes.io/managed-by=cuber"
     end
 
